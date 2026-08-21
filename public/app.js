@@ -60,6 +60,7 @@ function filteredEvents() {
 
 function renderFilters() {
   const holder = document.querySelector('#platformFilters');
+  if (!holder) return;
   holder.innerHTML = state.data.sources.map((source) => `<button class="filter-chip ${state.hiddenPlatforms.has(source.id) ? '' : 'active'}" data-platform-filter="${esc(source.id)}"><span style="background:${source.color}"></span>${esc(source.name)}</button>`).join('');
   holder.querySelectorAll('[data-platform-filter]').forEach((button) => button.addEventListener('click', () => {
     const id = button.dataset.platformFilter;
@@ -171,6 +172,7 @@ function renderAudienceChart(samples) {
 }
 
 function renderSources() {
+  sourceStrip.classList.toggle('hidden', state.data.sources.length === 0);
   const visibleSources = state.data.sources.filter((source) => !state.hiddenPlatforms.has(source.id));
   const exclusiveId = visibleSources.length === 1 ? visibleSources[0].id : null;
   sourceStrip.innerHTML = state.data.sources.map((source) => `
@@ -366,7 +368,9 @@ async function openAgendaSettings() {
   dialog.showModal();
   try {
     state.agendaConfig = await fetch('/api/agenda-config').then((response) => response.json());
-    document.querySelector('#configPlatform').innerHTML = `${state.agendaConfig.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('')}<option value="new">＋ Adicionar agenda de outro site</option>`;
+    const configured = state.agendaConfig.filter((item) => item.configured);
+    const available = state.agendaConfig.filter((item) => !item.configured);
+    document.querySelector('#configPlatform').innerHTML = `${configured.length ? '<optgroup label="Suas agendas">' + configured.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('') + '</optgroup>' : ''}${available.length ? '<optgroup label="Integrações disponíveis">' + available.map((item) => `<option value="${esc(item.id)}">＋ ${esc(item.name)}</option>`).join('') + '</optgroup>' : ''}<option value="new">＋ Outro site ou API</option>`;
     fillAgendaConfig(); message.textContent = '';
   } catch { message.textContent = 'Não foi possível carregar as configurações.'; }
 }
@@ -410,7 +414,16 @@ async function saveAgendaConfig() {
 }
 
 document.querySelector('#openAgendaSettings').addEventListener('click', openAgendaSettings);
+document.querySelector('#emptyAddAgenda').addEventListener('click', openAgendaSettings);
 document.querySelector('#configPlatform').addEventListener('change', fillAgendaConfig);
+document.querySelector('#openConfigSite').addEventListener('click', () => {
+  const value = document.querySelector('#configUrl').value.trim();
+  if (!/^https?:\/\//i.test(value)) {
+    document.querySelector('#configMessage').textContent = 'Informe primeiro o endereço do site.';
+    return;
+  }
+  window.open(value, '_blank', 'noopener,noreferrer');
+});
 document.querySelector('#saveAgendaConfig').addEventListener('click', saveAgendaConfig);
 refreshButton.addEventListener('click', () => load(true));
 document.querySelectorAll('.nav-tab').forEach((button) => button.addEventListener('click', () => openView(button.dataset.view)));

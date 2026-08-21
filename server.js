@@ -20,14 +20,19 @@ const defaultPlatforms = [
   { id: 'printstream', name: 'PrintStream', color: '#14b8a6', api: 'https://api.printstream-platform.com.br' },
   { id: 'rivals', name: 'Rivals', color: '#f43f5e', api: 'https://api.rivals-platform.com.br' },
   { id: 'alcateia', name: 'Alcateia', color: '#a35fe0', api: 'https://alcateia-backend-production.up.railway.app', kind: 'grade' },
-  { id: 'nexus', name: 'Nexus', color: '#2563eb', api: 'https://nexus-backend-production-be46.up.railway.app', kind: 'grade' }
+  { id: 'nexus', name: 'Nexus', color: '#2563eb', api: 'https://nexus-backend-production-be46.up.railway.app', kind: 'grade' },
+  { id: 'skyvolk', name: 'SkyVolk', color: '#8b00ff', api: 'https://skyvolk.com', kind: 'auto', requiresPassword: false }
 ];
 
-function configuredPlatforms() {
+function configuredPlatforms({ includeAvailable = false } = {}) {
   const custom = Object.entries(agendaConfig)
     .filter(([, value]) => value?.custom)
     .map(([id, value]) => ({ id, name: value.name || 'Outra agenda', color: value.color || '#f59e0b', api: value.url, kind: 'auto', custom: true }));
-  return [...defaultPlatforms, ...custom];
+  const defaults = includeAvailable ? defaultPlatforms : defaultPlatforms.filter((platform) => {
+    const credentials = platformCredentials(platform);
+    return Boolean(credentials.username && (platform.requiresPassword === false || credentials.password));
+  });
+  return [...defaults, ...custom];
 }
 
 let agendaConfig = loadAgendaConfig();
@@ -679,9 +684,9 @@ function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/agenda-config') {
-    const data = configuredPlatforms().map((platform) => {
+    const data = configuredPlatforms({ includeAvailable: true }).map((platform) => {
       const credentials = platformCredentials(platform);
-      return { id: platform.id, name: platform.name, color: platform.color, custom: Boolean(platform.custom), url: credentials.api, username: credentials.username, hasPassword: Boolean(credentials.password) };
+      return { id: platform.id, name: platform.name, color: platform.color, custom: Boolean(platform.custom), configured: platform.custom || Boolean(credentials.username && (platform.requiresPassword === false || credentials.password)), url: credentials.api, username: credentials.username, hasPassword: Boolean(credentials.password) };
     });
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     return res.end(JSON.stringify(data));
@@ -690,7 +695,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = JSON.parse((await readRequestBody(req)).toString('utf8'));
       const isNew = body.platformId === 'new';
-      const platform = isNew ? null : configuredPlatforms().find((item) => item.id === body.platformId);
+      const platform = isNew ? null : configuredPlatforms({ includeAvailable: true }).find((item) => item.id === body.platformId);
       if (!isNew && !platform) throw new Error('Plataforma inválida');
       const url = String(body.url || '').trim().replace(/\/$/, '');
       if (!/^https?:\/\//i.test(url)) throw new Error('Informe um link válido, começando com http:// ou https://');

@@ -103,10 +103,6 @@
         </div>
         <div class="agenda-toolbar">
           <div class="filter-block">
-            <span>PLATAFORMAS</span>
-            <div class="filter-options" id="platformFilters"></div>
-          </div>
-          <div class="filter-block">
             <span>DIA</span>
             <select id="dayFilter" aria-label="Filtrar por dia">
               <option value="all">Todos os dias</option>
@@ -114,13 +110,14 @@
               <option value="3">Quinta</option><option value="4">Sexta</option><option value="5">Sábado</option><option value="6">Domingo</option>
             </select>
           </div>
-          <button class="settings-button" id="openAgendaSettings">Configurar agendas</button>
+          <button class="settings-button" id="openAgendaSettings">Adicionar ou gerenciar agendas</button>
         </div>
         <div class="week-grid" id="weekGrid"></div>
         <div class="empty-state hidden" id="emptyState">
           <span>◌</span>
           <h3>Nenhum horário nesta semana</h3>
-          <p>Quando as plataformas publicarem novos horários, eles aparecerão aqui.</p>
+          <p>Adicione uma agenda ou selecione outra semana.</p>
+          <button class="save-button empty-add-button" type="button" id="emptyAddAgenda">Adicionar agenda</button>
         </div>
       </section>
       </section>
@@ -139,14 +136,15 @@
 
     <dialog class="settings-dialog" id="agendaSettingsDialog">
       <form method="dialog" class="settings-card">
-        <div class="settings-head"><div><p class="eyebrow">CONFIGURAÇÃO</p><h2>Links e acessos</h2></div><button class="dialog-close" value="cancel" aria-label="Fechar">×</button></div>
-        <p class="settings-intro">Escolha uma plataforma existente ou adicione outro site. O servidor tentará localizar uma API de agenda compatível.</p>
+        <div class="settings-head"><div><p class="eyebrow">AGENDAS</p><h2>Adicionar ou editar</h2></div><button class="dialog-close" value="cancel" aria-label="Fechar">×</button></div>
+        <p class="settings-intro">Escolha uma integração disponível ou adicione outro site.</p>
         <label>Plataforma<select id="configPlatform"></select></label>
         <div class="custom-source-fields hidden" id="customSourceFields">
           <label>Nome da agenda<input id="configName" maxlength="60" placeholder="Ex.: Minha plataforma"></label>
           <label>Cor<input id="configColor" type="color" value="#f59e0b"></label>
         </div>
         <label>Link da agenda<input id="configUrl" type="url" required placeholder="https://api.exemplo.com.br"></label>
+        <button type="button" class="open-site-button" id="openConfigSite">Abrir site para fazer login ↗</button>
         <label>Login<input id="configUsername" autocomplete="username" placeholder="Seu usuário"></label>
         <label>Senha <span class="optional-label">opcional para grades públicas</span><input id="configPassword" type="password" autocomplete="current-password" placeholder="Deixe vazio se o site não exigir"></label>
         <p class="settings-message" id="configMessage"></p>
