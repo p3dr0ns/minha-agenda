@@ -255,11 +255,30 @@ function urlBases(input) {
   return [...new Set([pathBase, parsed.origin, `${parsed.origin}/api`, `${parsed.origin}/api/v1`])];
 }
 
+async function discoverUrlBases(input) {
+  const direct = urlBases(input);
+  try {
+    const html = await requestJson(input, { headers: { accept: 'text/html' } });
+    if (typeof html !== 'string') return direct;
+    const scripts = [...html.matchAll(/<script[^>]+src=["']([^"']+\.js(?:\?[^"']*)?)["']/gi)]
+      .map((match) => new URL(match[1], input).href).slice(0, 5);
+    const bundles = await Promise.all(scripts.map((url) => requestJson(url, { headers: { accept: 'text/javascript' } }).catch(() => '')));
+    const discovered = bundles.flatMap((bundle) => typeof bundle === 'string'
+      ? [...bundle.matchAll(/https?:\/\/[^"'`\\\s)]+/g)].map((match) => match[0].replace(/[;,]+$/, ''))
+      : []).filter((url) => {
+        try { const parsed = new URL(url); return /(^|[.-])api([.-]|$)/i.test(parsed.hostname) || /\/api(?:\/|$)/i.test(parsed.pathname); }
+        catch { return false; }
+      });
+    return [...new Set([...discovered.flatMap(urlBases), ...direct])];
+  } catch { return direct; }
+}
+
 async function discoverPlatformSchedule(platform, inputUrl, username, password) {
   const weeks = [currentWeekStart()];
   const next = new Date(`${weeks[0]}T12:00:00`); next.setDate(next.getDate() + 7);
   weeks.push(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`);
-  for (const base of urlBases(inputUrl)) {
+  const bases = await discoverUrlBases(inputUrl);
+  for (const base of bases) {
     try {
       const payload = await requestJson(`${base}/api/cronograma`, { headers: { accept: 'application/json' } });
       const events = weeks.flatMap((week) => normalizeWeeklyUserEvents(payload, week, platform, username));
@@ -267,7 +286,7 @@ async function discoverPlatformSchedule(platform, inputUrl, username, password) 
     } catch {}
   }
   if (!password) throw new Error('A grade pública não foi encontrada. Informe a senha para testar APIs autenticadas.');
-  const loginCandidates = urlBases(inputUrl).flatMap((base) =>
+  const loginCandidates = bases.flatMap((base) =>
     ['/auth/login', '/admin/login', '/api/auth/login', '/login'].map(async (endpoint) => {
       const login = await loginAt(base, endpoint, username, password);
       const token = login?.token || login?.accessToken || login?.access_token || login?.data?.token;
