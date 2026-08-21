@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#090909">
+    <title>Minha Agenda</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Minha Agenda">
+        <span class="brand-mark"><i></i><i></i><i></i></span>
+        <span>minha<span>agenda</span></span>
+      </a>
+      <nav class="main-nav" aria-label="Navegação principal">
+        <button class="nav-tab active live-nav-tab" data-view="dashboard"><span class="nav-live-dot" aria-hidden="true"></span>AO VIVO</button>
+        <button class="nav-tab" data-view="schedule">Horários</button>
+        <button class="nav-tab" data-view="settings">Configurações</button>
+      </nav>
+      <div class="top-actions">
+        <span class="sync-label" id="syncLabel">Sincronizando…</span>
+        <button class="icon-button" id="refreshButton" title="Atualizar agendas" aria-label="Atualizar agendas">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="view-panel active" id="dashboardView">
+        <div class="dashboard-head">
+          <div>
+            <p class="eyebrow">KICK ANALYTICS</p>
+            <h1>Visão geral<br><em>da sua live.</em></h1>
+            <p class="subtitle">Acompanhe o desempenho do canal e conecte sua conta da Kick.</p>
+          </div>
+          <div class="kick-connect-card">
+            <span class="kick-status-dot" id="kickStatusDot"></span>
+            <div><small>CONTA KICK</small><strong id="kickAccount">Não conectada</strong></div>
+            <button class="kick-button" id="kickLoginButton">Conectar com a Kick</button>
+            <p class="kick-connect-hint" id="kickConnectHint"></p>
+          </div>
+        </div>
+        <div class="stats-grid">
+          <article class="stat-card"><span>STATUS</span><strong id="statLive">Offline</strong><small id="statLiveDetail">Conecte sua conta</small></article>
+          <article class="stat-card"><span>ESPECTADORES</span><strong id="statViewers">—</strong><small>assistindo agora</small></article>
+          <article class="stat-card"><span>TEMPO AO VIVO</span><strong id="statDuration">—</strong><small>sessão atual</small></article>
+        </div>
+        <div class="analytics-grid">
+          <article class="dashboard-card audience-card">
+            <div class="card-heading"><div><p class="eyebrow">AUDIÊNCIA</p><h2>Evolução de espectadores</h2></div><span class="analytics-status" id="audienceStatus">Aguardando dados</span></div>
+            <div class="audience-summary"><span>PICO<strong id="audiencePeak">—</strong></span><span>MÉDIA<strong id="audienceAverage">—</strong></span><span>MAIOR AUDIÊNCIA<strong id="audiencePeakTime">—</strong></span></div>
+            <div class="chart-wrap" id="audienceChart"><div class="chart-empty">As amostras aparecerão durante a live.</div></div>
+          </article>
+          <article class="dashboard-card chat-card">
+            <div class="card-heading"><div><p class="eyebrow">CHAT</p><h2>Mais ativos</h2></div><span class="analytics-status" id="chatTotal">0 mensagens</span></div>
+            <div class="chat-ranking" id="chatRanking"><div class="chart-empty">Aguardando mensagens do webhook.</div></div>
+          </article>
+        </div>
+        <div class="dashboard-grid">
+          <article class="dashboard-card live-summary">
+            <div class="card-heading"><div><p class="eyebrow">TRANSMISSÃO</p><h2 id="liveTitle">Nenhuma live ativa</h2></div><span class="live-badge" id="liveBadge">OFFLINE</span></div>
+            <div class="live-meta"><span>Categoria<strong id="liveCategory">—</strong></span><span>Início<strong id="liveStarted">—</strong></span></div>
+          </article>
+          <article class="dashboard-card"><p class="eyebrow">AGENDA</p><h2>Próximos horários</h2><div class="dashboard-next" id="dashboardNext">Carregando…</div><button class="text-button" data-open-schedule>Ver grade completa →</button></article>
+        </div>
+        <article class="dashboard-card history-card">
+          <div class="card-heading"><div><p class="eyebrow">HISTÓRICO</p><h2>Transmissões anteriores</h2></div><span class="analytics-status" id="historyTotal">0 lives</span></div>
+          <div class="live-history" id="liveHistory"><div class="chart-empty">Carregando histórico…</div></div>
+        </article>
+        <p class="kick-message" id="kickMessage"></p>
+      </section>
+
+      <section class="view-panel" id="scheduleView">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">PAINEL DE HORÁRIOS</p>
+          <h1>Uma agenda.<br><em>Todo o seu tempo.</em></h1>
+          <p class="subtitle">Seus horários de todas as plataformas, reunidos em um só lugar.</p>
+        </div>
+        <div class="next-card" id="nextCard">
+          <span class="next-label">PRÓXIMO HORÁRIO</span>
+          <strong id="nextTitle">Carregando…</strong>
+          <span id="nextTime">Aguarde um instante</span>
+        </div>
+      </section>
+
+      <section class="source-strip" id="sourceStrip" aria-label="Status das plataformas"></section>
+
+      <section class="calendar-panel">
+        <div class="calendar-head">
+          <div>
+            <p class="eyebrow">VISÃO SEMANAL</p>
+            <h2 id="weekTitle">Esta semana</h2>
+          </div>
+          <div class="week-controls">
+            <button class="week-tab active" id="currentWeek">Semana atual</button>
+            <button class="week-tab" id="nextWeek">Próxima semana</button>
+          </div>
+        </div>
+        <div class="agenda-toolbar">
+          <div class="filter-block">
+            <span>PLATAFORMAS</span>
+            <div class="filter-options" id="platformFilters"></div>
+          </div>
+          <div class="filter-block">
+            <span>DIA</span>
+            <select id="dayFilter" aria-label="Filtrar por dia">
+              <option value="all">Todos os dias</option>
+              <option value="0">Segunda</option><option value="1">Terça</option><option value="2">Quarta</option>
+              <option value="3">Quinta</option><option value="4">Sexta</option><option value="5">Sábado</option><option value="6">Domingo</option>
+            </select>
+          </div>
+          <button class="settings-button" id="openAgendaSettings">Configurar agendas</button>
+        </div>
+        <div class="week-grid" id="weekGrid"></div>
+        <div class="empty-state hidden" id="emptyState">
+          <span>◌</span>
+          <h3>Nenhum horário nesta semana</h3>
+          <p>Quando as plataformas publicarem novos horários, eles aparecerão aqui.</p>
+        </div>
+      </section>
+      </section>
+
+      <section class="view-panel settings-view" id="settingsView">
+        <div class="settings-page-head"><p class="eyebrow">PREFERÊNCIAS</p><h1>Configurações</h1><p class="subtitle">Ajuste como sua agenda funciona neste navegador.</p></div>
+        <div class="preferences-grid">
+          <article class="preference-card"><label for="refreshInterval">Atualização automática</label><p>Frequência para buscar novos horários.</p><select id="refreshInterval"><option value="1">A cada minuto</option><option value="2">A cada 2 minutos</option><option value="5">A cada 5 minutos</option><option value="10">A cada 10 minutos</option><option value="0">Somente manual</option></select></article>
+          <article class="preference-card"><label for="notificationLead">Antecedência das notificações</label><p>Quando avisar sobre o próximo horário.</p><select id="notificationLead"><option value="0">Desativadas</option><option value="5">5 minutos antes</option><option value="10">10 minutos antes</option><option value="15">15 minutos antes</option><option value="30">30 minutos antes</option><option value="60">1 hora antes</option></select><button class="permission-button" id="notificationPermission">Permitir notificações</button></article>
+          <article class="preference-card"><label for="timezoneSetting">Fuso horário</label><p>Usado para exibir todos os horários.</p><select id="timezoneSetting"><option value="America/Sao_Paulo">Brasília</option><option value="America/Manaus">Manaus</option><option value="America/Rio_Branco">Acre</option><option value="America/Noronha">Fernando de Noronha</option><option value="UTC">UTC</option></select></article>
+          <article class="preference-card platforms-preference"><label>Plataformas visíveis</label><p>Escolha quais aparecem na agenda.</p><div class="settings-platforms" id="settingsPlatforms"></div></article>
+        </div>
+        <div class="preferences-footer"><span id="preferencesMessage">As alterações são salvas neste navegador.</span><button class="save-button" id="savePreferences">Salvar configurações</button></div>
+      </section>
+    </main>
+
+    <dialog class="settings-dialog" id="agendaSettingsDialog">
+      <form method="dialog" class="settings-card">
+        <div class="settings-head"><div><p class="eyebrow">CONFIGURAÇÃO</p><h2>Links e acessos</h2></div><button class="dialog-close" value="cancel" aria-label="Fechar">×</button></div>
+        <p class="settings-intro">Escolha uma plataforma existente ou adicione outro site. O servidor tentará localizar uma API de agenda compatível.</p>
+        <label>Plataforma<select id="configPlatform"></select></label>
+        <div class="custom-source-fields hidden" id="customSourceFields">
+          <label>Nome da agenda<input id="configName" maxlength="60" placeholder="Ex.: Minha plataforma"></label>
+          <label>Cor<input id="configColor" type="color" value="#f59e0b"></label>
+        </div>
+        <label>Link da agenda<input id="configUrl" type="url" required placeholder="https://api.exemplo.com.br"></label>
+        <label>Login<input id="configUsername" autocomplete="username" placeholder="Seu usuário"></label>
+        <label>Senha <span class="optional-label">opcional para grades públicas</span><input id="configPassword" type="password" autocomplete="current-password" placeholder="Deixe vazio se o site não exigir"></label>
+        <p class="settings-message" id="configMessage"></p>
+        <div class="settings-actions"><button value="cancel" class="secondary-button">Cancelar</button><button type="button" class="save-button" id="saveAgendaConfig">Salvar e atualizar</button></div>
+      </form>
+    </dialog>
+
+    <footer id="siteFooter">Preferências da agenda salvas neste navegador</footer>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

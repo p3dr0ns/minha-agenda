@@ -1,0 +1,12 @@
+.env
+.agenda-config.json
+.live-history.json
+.kick-session.json
+node_modules/
+.tools/
+server.out.log
+server.err.log
+.server.log
+.server-error.log
+.DS_Store
+Thumbs.db
