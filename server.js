@@ -7,9 +7,11 @@ loadEnv(path.join(__dirname, '.env'));
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const AGENDA_CONFIG_FILE = path.join(__dirname, '.agenda-config.json');
-const LIVE_HISTORY_FILE = path.join(__dirname, '.live-history.json');
-const KICK_SESSION_FILE = path.join(__dirname, '.kick-session.json');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || __dirname);
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const AGENDA_CONFIG_FILE = path.join(DATA_DIR, '.agenda-config.json');
+const LIVE_HISTORY_FILE = path.join(DATA_DIR, '.live-history.json');
+const KICK_SESSION_FILE = path.join(DATA_DIR, '.kick-session.json');
 const CACHE_MS = 2 * 60 * 1000;
 
 const defaultPlatforms = [
@@ -471,6 +473,30 @@ function base64url(buffer) {
   return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+function oauthCookieValue(data) {
+  const payload = base64url(Buffer.from(JSON.stringify(data)));
+  const signature = base64url(crypto.createHmac('sha256', process.env.KICK_CLIENT_SECRET).update(payload).digest());
+  return `${payload}.${signature}`;
+}
+
+function readOAuthCookie(req) {
+  try {
+    const cookies = Object.fromEntries(String(req.headers.cookie || '').split(';').map((part) => part.trim().split(/=(.*)/s).slice(0, 2)));
+    const [payload, signature] = String(cookies.kick_oauth || '').split('.');
+    if (!payload || !signature) return null;
+    const expected = base64url(crypto.createHmac('sha256', process.env.KICK_CLIENT_SECRET).update(payload).digest());
+    const actualBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expected);
+    if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch { return null; }
+}
+
+function oauthCookie(value, maxAge = 600) {
+  const secure = String(process.env.KICK_REDIRECT_URI || '').startsWith('https://') ? '; Secure' : '';
+  return `kick_oauth=${value}; Path=/api/kick; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+}
+
 function kickConfigured() {
   return Boolean(process.env.KICK_CLIENT_ID && process.env.KICK_CLIENT_SECRET && process.env.KICK_REDIRECT_URI);
 }
@@ -726,13 +752,14 @@ const server = http.createServer(async (req, res) => {
     const state = base64url(crypto.randomBytes(24));
     const verifier = base64url(crypto.randomBytes(48));
     const challenge = base64url(crypto.createHash('sha256').update(verifier).digest());
-    kickOAuthStates.set(state, { verifier, createdAt: Date.now() });
+    const pending = { state, verifier, createdAt: Date.now() };
+    kickOAuthStates.set(state, pending);
     const params = new URLSearchParams({
       response_type: 'code', client_id: process.env.KICK_CLIENT_ID,
       redirect_uri: process.env.KICK_REDIRECT_URI, scope: 'user:read channel:read events:subscribe',
       code_challenge: challenge, code_challenge_method: 'S256', state
     });
-    res.writeHead(302, { location: `https://id.kick.com/oauth/authorize?${params}` });
+    res.writeHead(302, { location: `https://id.kick.com/oauth/authorize?${params}`, 'set-cookie': oauthCookie(oauthCookieValue(pending)) });
     return res.end();
   }
   if (req.method === 'GET' && req.url.startsWith('/api/kick/callback')) {
@@ -740,11 +767,12 @@ const server = http.createServer(async (req, res) => {
     const state = query.get('state');
     const code = query.get('code');
     const oauthError = query.get('error_description') || query.get('error');
-    const pending = kickOAuthStates.get(state);
+    const cookiePending = readOAuthCookie(req);
+    const pending = kickOAuthStates.get(state) || (cookiePending?.state === state ? cookiePending : null);
     kickOAuthStates.delete(state);
     if (!code || !pending || Date.now() - pending.createdAt > 10 * 60 * 1000) {
       kickLastError = oauthError ? `A Kick recusou o login: ${oauthError}` : 'A autorização expirou ou não pôde ser validada. Tente novamente.';
-      res.writeHead(302, { location: '/?kick=error' }); return res.end();
+      res.writeHead(302, { location: '/?kick=error', 'set-cookie': oauthCookie('', 0) }); return res.end();
     }
     try {
       const body = new URLSearchParams({
@@ -759,10 +787,10 @@ const server = http.createServer(async (req, res) => {
       saveKickSession();
       await subscribeToChat(token.access_token);
       kickLastError = null;
-      res.writeHead(302, { location: '/?kick=connected' }); return res.end();
+      res.writeHead(302, { location: '/?kick=connected', 'set-cookie': oauthCookie('', 0) }); return res.end();
     } catch (error) {
       kickLastError = `Não foi possível concluir o login: ${error.message}`;
-      res.writeHead(302, { location: '/?kick=error' }); return res.end();
+      res.writeHead(302, { location: '/?kick=error', 'set-cookie': oauthCookie('', 0) }); return res.end();
     }
   }
   if (req.method === 'GET' && req.url.startsWith('/api/schedule')) {

@@ -18,3 +18,13 @@ A descoberta funciona com APIs JSON nos formatos já reconhecidos pelo projeto. 
 O formato semanal público usado pelo SkyVolk também é reconhecido. Nesse caso, informe `https://skyvolk.com`, o nome de usuário e deixe a senha vazia; a agenda é filtrada pelo usuário informado.
 
 As credenciais são utilizadas somente pelo servidor local e não são enviadas ao navegador. O arquivo `.env` está ignorado pelo Git.
+
+## Armazenamento persistente no Railway
+
+Adicione um volume ao serviço com o caminho de montagem `/data` e configure a variável:
+
+```env
+DATA_DIR=/data
+```
+
+Com essa variável, configurações das agendas, sessão OAuth da Kick e histórico das lives são gravados no volume. Sem ela, os arquivos continuam sendo gravados na pasta do projeto, como no uso local.
