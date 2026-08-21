@@ -29,6 +29,7 @@ function configuredPlatforms({ includeAvailable = false } = {}) {
     .filter(([, value]) => value?.custom)
     .map(([id, value]) => ({ id, name: value.name || 'Outra agenda', color: value.color || '#f59e0b', api: value.url, kind: 'auto', custom: true }));
   const defaults = includeAvailable ? defaultPlatforms : defaultPlatforms.filter((platform) => {
+    if (agendaConfig[platform.id]?.disabled) return false;
     const credentials = platformCredentials(platform);
     return Boolean(credentials.username && (platform.requiresPassword === false || credentials.password));
   });
@@ -684,7 +685,7 @@ function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/agenda-config') {
-    const data = configuredPlatforms({ includeAvailable: true }).map((platform) => {
+    const data = configuredPlatforms().map((platform) => {
       const credentials = platformCredentials(platform);
       return { id: platform.id, name: platform.name, color: platform.color, custom: Boolean(platform.custom), configured: platform.custom || Boolean(credentials.username && (platform.requiresPassword === false || credentials.password)), url: credentials.api, username: credentials.username, hasPassword: Boolean(credentials.password) };
     });
@@ -707,6 +708,7 @@ const server = http.createServer(async (req, res) => {
         url,
         username: String(body.username || '').trim(),
         password: body.clearPassword ? '' : (body.password ? String(body.password) : (current.password || '')),
+        disabled: false,
         ...(isNew || platform.custom ? { custom: true, name: name || current.name || platform.name, color: String(body.color || current.color || '#f59e0b') } : {})
       };
       fs.writeFileSync(AGENDA_CONFIG_FILE, `${JSON.stringify(agendaConfig, null, 2)}\n`, { mode: 0o600 });
@@ -716,6 +718,22 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
       return res.end(JSON.stringify({ error: error.message || 'Não foi possível salvar' }));
+    }
+  }
+  if (req.method === 'DELETE' && req.url.startsWith('/api/agenda-config/')) {
+    try {
+      const id = decodeURIComponent(new URL(req.url, 'http://localhost').pathname.split('/').pop());
+      const platform = configuredPlatforms({ includeAvailable: true }).find((item) => item.id === id);
+      if (!platform) throw new Error('Grupo não encontrado');
+      if (platform.custom) delete agendaConfig[id];
+      else agendaConfig[id] = { disabled: true };
+      fs.writeFileSync(AGENDA_CONFIG_FILE, `${JSON.stringify(agendaConfig, null, 2)}\n`, { mode: 0o600 });
+      cache = { at: 0, result: null };
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(JSON.stringify({ ok: true }));
+    } catch (error) {
+      res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ error: error.message || 'Não foi possível remover' }));
     }
   }
   if (req.method === 'POST' && req.url === '/api/kick/webhook') {

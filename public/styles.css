@@ -133,6 +133,7 @@ footer { color: #53635b; font-size: 13px; }
 .optional-label { color: #717178; font-weight: 500; }
 .open-site-button { align-self: flex-start; margin-top: -8px; padding: 0; color: #b8b8c0; border: 0; background: transparent; font-size: 11px; font-weight: 700; }.open-site-button:hover { color: #fff; }
 .empty-add-button { margin-top: 18px; }
+.settings-action-spacer { flex: 1; }.remove-button { min-height: 40px; padding: 0 13px; color: #ef7780; border: 1px solid #633037; border-radius: 7px; background: transparent; font-size: 11px; font-weight: 800; }.remove-button:hover { color: #fff; border-color: #b92a34; background: #34171b; }.remove-button.hidden { display: none; }
 .settings-message { min-height: 18px; margin: 0; color: #ef5963; font-size: 12px; }.settings-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .secondary-button, .save-button { min-height: 40px; padding: 0 15px; border-radius: 7px; font-size: 12px; font-weight: 800; }.secondary-button { color: #bbb; border: 1px solid #383838; background: #171717; }.save-button { color: #fff; border: 1px solid #d51f2b; background: #d51f2b; }.save-button:disabled { opacity: .55; }
 @media (max-width: 720px) { .agenda-toolbar { align-items: stretch; flex-direction: column; gap: 14px; padding: 16px; }.settings-button { margin-left: 0; }.filter-options { gap: 5px; } }

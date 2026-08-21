@@ -137,7 +137,7 @@
     <dialog class="settings-dialog" id="agendaSettingsDialog">
       <form method="dialog" class="settings-card">
         <div class="settings-head"><div><p class="eyebrow">AGENDAS</p><h2>Adicionar ou editar</h2></div><button class="dialog-close" value="cancel" aria-label="Fechar">×</button></div>
-        <p class="settings-intro">Escolha uma integração disponível ou adicione outro site.</p>
+        <p class="settings-intro">Edite um grupo conectado ou adicione outro site.</p>
         <label>Plataforma<select id="configPlatform"></select></label>
         <div class="custom-source-fields hidden" id="customSourceFields">
           <label>Nome da agenda<input id="configName" maxlength="60" placeholder="Ex.: Minha plataforma"></label>
@@ -148,7 +148,7 @@
         <label>Login<input id="configUsername" autocomplete="username" placeholder="Seu usuário"></label>
         <label>Senha <span class="optional-label">opcional para grades públicas</span><input id="configPassword" type="password" autocomplete="current-password" placeholder="Deixe vazio se o site não exigir"></label>
         <p class="settings-message" id="configMessage"></p>
-        <div class="settings-actions"><button value="cancel" class="secondary-button">Cancelar</button><button type="button" class="save-button" id="saveAgendaConfig">Salvar e atualizar</button></div>
+        <div class="settings-actions"><button type="button" class="remove-button hidden" id="removeAgendaConfig">Remover grupo</button><span class="settings-action-spacer"></span><button value="cancel" class="secondary-button">Cancelar</button><button type="button" class="save-button" id="saveAgendaConfig">Salvar e atualizar</button></div>
       </form>
     </dialog>
 

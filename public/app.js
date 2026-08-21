@@ -368,9 +368,7 @@ async function openAgendaSettings() {
   dialog.showModal();
   try {
     state.agendaConfig = await fetch('/api/agenda-config').then((response) => response.json());
-    const configured = state.agendaConfig.filter((item) => item.configured);
-    const available = state.agendaConfig.filter((item) => !item.configured);
-    document.querySelector('#configPlatform').innerHTML = `${configured.length ? '<optgroup label="Suas agendas">' + configured.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('') + '</optgroup>' : ''}${available.length ? '<optgroup label="Integrações disponíveis">' + available.map((item) => `<option value="${esc(item.id)}">＋ ${esc(item.name)}</option>`).join('') + '</optgroup>' : ''}<option value="new">＋ Outro site ou API</option>`;
+    document.querySelector('#configPlatform').innerHTML = `${state.agendaConfig.length ? '<optgroup label="Seus grupos">' + state.agendaConfig.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('') + '</optgroup>' : ''}<option value="new">＋ Outro site ou API</option>`;
     fillAgendaConfig(); message.textContent = '';
   } catch { message.textContent = 'Não foi possível carregar as configurações.'; }
 }
@@ -379,6 +377,7 @@ function fillAgendaConfig() {
   const selectedId = document.querySelector('#configPlatform').value;
   const isNew = selectedId === 'new';
   const selected = state.agendaConfig.find((entry) => entry.id === selectedId);
+  document.querySelector('#removeAgendaConfig').classList.toggle('hidden', !selected);
   document.querySelector('#customSourceFields').classList.toggle('hidden', !isNew && !selected?.custom);
   const item = selected;
   if (!item) {
@@ -413,6 +412,26 @@ async function saveAgendaConfig() {
   finally { button.disabled = false; }
 }
 
+async function removeAgendaConfig() {
+  const selected = state.agendaConfig.find((entry) => entry.id === document.querySelector('#configPlatform').value);
+  if (!selected || !confirm(`Remover o grupo ${selected.name}?`)) return;
+  const message = document.querySelector('#configMessage');
+  const button = document.querySelector('#removeAgendaConfig');
+  button.disabled = true; message.textContent = 'Removendo…';
+  try {
+    const response = await fetch(`/api/agenda-config/${encodeURIComponent(selected.id)}`, { method: 'DELETE' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    state.agendaConfig = state.agendaConfig.filter((item) => item.id !== selected.id);
+    document.querySelector('#configPlatform').innerHTML = `${state.agendaConfig.length ? '<optgroup label="Seus grupos">' + state.agendaConfig.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('') + '</optgroup>' : ''}<option value="new">＋ Outro site ou API</option>`;
+    document.querySelector('#configPlatform').value = 'new';
+    fillAgendaConfig();
+    message.textContent = 'Grupo removido.';
+    await load(true);
+  } catch (error) { message.textContent = error.message || 'Não foi possível remover.'; }
+  finally { button.disabled = false; }
+}
+
 document.querySelector('#openAgendaSettings').addEventListener('click', openAgendaSettings);
 document.querySelector('#emptyAddAgenda').addEventListener('click', openAgendaSettings);
 document.querySelector('#configPlatform').addEventListener('change', fillAgendaConfig);
@@ -425,6 +444,7 @@ document.querySelector('#openConfigSite').addEventListener('click', () => {
   window.open(value, '_blank', 'noopener,noreferrer');
 });
 document.querySelector('#saveAgendaConfig').addEventListener('click', saveAgendaConfig);
+document.querySelector('#removeAgendaConfig').addEventListener('click', removeAgendaConfig);
 refreshButton.addEventListener('click', () => load(true));
 document.querySelectorAll('.nav-tab').forEach((button) => button.addEventListener('click', () => openView(button.dataset.view)));
 document.querySelector('[data-open-schedule]').addEventListener('click', () => openView('schedule'));
