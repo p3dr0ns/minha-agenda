@@ -17,7 +17,7 @@ function startOfWeek(input) {
 function sameDay(a, b) { return a.toDateString() === b.toDateString(); }
 function esc(value) { return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]); }
 function loadPreferences() {
-  try { return { refreshMinutes: 2, notificationLead: 0, timezone: 'America/Sao_Paulo', hiddenPlatforms: [], ...JSON.parse(localStorage.getItem('agendaPreferences') || '{}') }; }
+  try { return { refreshMinutes: 2, notificationLead: 0, timezone: 'America/Sao_Paulo', hiddenPlatforms: [], ...JSON.parse(localStorage.getItem('agendaPreferences:' + window.agendaUser.id) || '{}') }; }
   catch { return { refreshMinutes: 2, notificationLead: 0, timezone: 'America/Sao_Paulo', hiddenPlatforms: [] }; }
 }
 function formatDate(value, options) { return new Date(value).toLocaleString('pt-BR', { ...options, timeZone: state.preferences.timezone }); }
@@ -318,7 +318,7 @@ function savePreferences() {
     timezone: document.querySelector('#timezoneSetting').value,
     hiddenPlatforms: [...state.hiddenPlatforms]
   };
-  localStorage.setItem('agendaPreferences', JSON.stringify(state.preferences));
+  localStorage.setItem('agendaPreferences:' + window.agendaUser.id, JSON.stringify(state.preferences));
   restartScheduleRefresh();
   render();
   const message = document.querySelector('#preferencesMessage');
@@ -340,9 +340,9 @@ function checkScheduleNotifications() {
   filteredEvents().forEach((event) => {
     const distance = new Date(event.start).getTime() - now;
     const key = `agenda-notified:${event.id}:${state.preferences.notificationLead}`;
-    if (distance > 0 && distance <= leadMs && !sessionStorage.getItem(key)) {
+    if (distance > 0 && distance <= leadMs && !sessionStorage.getItem(window.agendaUser.id + key)) {
       new Notification(`Horário em ${Math.max(1, Math.ceil(distance / 60_000))} min`, { body: `${event.platform} · ${event.title || 'Agenda'}` });
-      sessionStorage.setItem(key, '1');
+      sessionStorage.setItem(window.agendaUser.id + key, '1');
     }
   });
 }
@@ -364,31 +364,28 @@ document.querySelector('#dayFilter').addEventListener('change', (event) => { sta
 async function openAgendaSettings() {
   const dialog = document.querySelector('#agendaSettingsDialog');
   const message = document.querySelector('#configMessage');
-  message.textContent = 'Carregando…';
+  document.querySelector('#configPlatform').value = 'new';
+  document.querySelector('#gradeDialogTitle').textContent = 'Adicionar grade';
+  document.querySelector('#saveAgendaConfig').textContent = 'Buscar horários e adicionar';
+  document.querySelector('#customSourceFields').classList.remove('hidden');
+  document.querySelector('#configName').value = '';
+  document.querySelector('#configColor').value = '#f59e0b';
+  document.querySelector('#configUrl').value = '';
+  document.querySelector('#configUsername').value = '';
+  document.querySelector('#configPassword').value = '';
+  document.querySelector('#configPassword').placeholder = 'Deixe vazio se o site não exigir';
+  message.textContent = '';
   dialog.showModal();
-  try {
-    state.agendaConfig = await fetch('/api/agenda-config').then((response) => response.json());
-    document.querySelector('#configPlatform').innerHTML = `${state.agendaConfig.length ? '<optgroup label="Seus grupos">' + state.agendaConfig.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('') + '</optgroup>' : ''}<option value="new">＋ Outro site ou API</option>`;
-    fillAgendaConfig(); message.textContent = '';
-  } catch { message.textContent = 'Não foi possível carregar as configurações.'; }
 }
 
-function fillAgendaConfig() {
-  const selectedId = document.querySelector('#configPlatform').value;
-  const isNew = selectedId === 'new';
-  const selected = state.agendaConfig.find((entry) => entry.id === selectedId);
-  document.querySelector('#removeAgendaConfig').classList.toggle('hidden', !selected);
-  document.querySelector('#customSourceFields').classList.toggle('hidden', !isNew && !selected?.custom);
-  const item = selected;
-  if (!item) {
-    document.querySelector('#configName').value = '';
-    document.querySelector('#configColor').value = '#f59e0b';
-    document.querySelector('#configUrl').value = '';
-    document.querySelector('#configUsername').value = '';
-    document.querySelector('#configPassword').value = '';
-    document.querySelector('#configPassword').placeholder = 'Sua senha';
-    return;
-  }
+function editAgendaConfig(id) {
+  const item = state.agendaConfig.find((entry) => entry.id === id);
+  if (!item) return;
+  openAgendaSettings();
+  document.querySelector('#configPlatform').value = item.id;
+  document.querySelector('#gradeDialogTitle').textContent = 'Editar grade';
+  document.querySelector('#saveAgendaConfig').textContent = 'Testar e salvar';
+  document.querySelector('#customSourceFields').classList.toggle('hidden', !item.custom);
   document.querySelector('#configName').value = item.name || '';
   document.querySelector('#configColor').value = item.color || '#f59e0b';
   document.querySelector('#configUrl').value = item.url || '';
@@ -397,36 +394,53 @@ function fillAgendaConfig() {
   document.querySelector('#configPassword').placeholder = item.hasPassword ? 'Senha já salva — deixe vazio para manter' : 'Sua senha';
 }
 
+async function loadAgendaConfigs() {
+  const holder = document.querySelector('#gradesList');
+  try {
+    const response = await fetch('/api/agenda-config');
+    if (!response.ok) throw new Error();
+    state.agendaConfig = await response.json();
+    holder.innerHTML = state.agendaConfig.length ? state.agendaConfig.map((item) => `
+      <article class="grade-row">
+        <span class="grade-color" style="--grade-color:${esc(item.color)}"></span>
+        <div class="grade-info"><strong>${esc(item.name)}</strong><span>${esc(item.url || 'Endereço não informado')}</span></div>
+        <span class="grade-status ${item.configured ? 'ready' : ''}">${item.configured ? 'Conectada' : 'Configurar'}</span>
+        <button class="grade-edit" type="button" data-edit-grade="${esc(item.id)}">Editar</button>
+        <button class="grade-remove" type="button" data-remove-grade="${esc(item.id)}" aria-label="Remover ${esc(item.name)}">Remover</button>
+      </article>`).join('') : '<p class="grades-empty">Nenhuma grade adicionada.</p>';
+    holder.querySelectorAll('[data-edit-grade]').forEach((button) => button.addEventListener('click', () => editAgendaConfig(button.dataset.editGrade)));
+    holder.querySelectorAll('[data-remove-grade]').forEach((button) => button.addEventListener('click', () => removeAgendaConfig(button.dataset.removeGrade)));
+  } catch { holder.innerHTML = '<p class="grades-empty">Não foi possível carregar as grades.</p>'; }
+}
+
 async function saveAgendaConfig() {
   const message = document.querySelector('#configMessage');
   const button = document.querySelector('#saveAgendaConfig');
-  button.disabled = true; message.textContent = 'Salvando…';
+  button.disabled = true; message.textContent = 'Conectando à comunidade e buscando seus horários…';
   try {
     const response = await fetch('/api/agenda-config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ platformId: document.querySelector('#configPlatform').value, name: document.querySelector('#configName').value, color: document.querySelector('#configColor').value, url: document.querySelector('#configUrl').value, username: document.querySelector('#configUsername').value, password: document.querySelector('#configPassword').value }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error);
-    message.textContent = 'Configuração salva. Atualizando a agenda…';
+    message.textContent = `${data.message || 'Comunidade conectada'}. Atualizando a agenda…`;
+    await loadAgendaConfigs();
     await load(true);
     setTimeout(() => document.querySelector('#agendaSettingsDialog').close(), 500);
   } catch (error) { message.textContent = error.message || 'Não foi possível salvar.'; }
   finally { button.disabled = false; }
 }
 
-async function removeAgendaConfig() {
-  const selected = state.agendaConfig.find((entry) => entry.id === document.querySelector('#configPlatform').value);
-  if (!selected || !confirm(`Remover o grupo ${selected.name}?`)) return;
-  const message = document.querySelector('#configMessage');
-  const button = document.querySelector('#removeAgendaConfig');
+async function removeAgendaConfig(id) {
+  const selected = state.agendaConfig.find((entry) => entry.id === id);
+  if (!selected || !confirm(`Remover a grade ${selected.name}?`)) return;
+  const message = document.querySelector('#gradesMessage');
+  const button = document.querySelector(`[data-remove-grade="${CSS.escape(selected.id)}"]`);
   button.disabled = true; message.textContent = 'Removendo…';
   try {
     const response = await fetch(`/api/agenda-config/${encodeURIComponent(selected.id)}`, { method: 'DELETE' });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error);
-    state.agendaConfig = state.agendaConfig.filter((item) => item.id !== selected.id);
-    document.querySelector('#configPlatform').innerHTML = `${state.agendaConfig.length ? '<optgroup label="Seus grupos">' + state.agendaConfig.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('') + '</optgroup>' : ''}<option value="new">＋ Outro site ou API</option>`;
-    document.querySelector('#configPlatform').value = 'new';
-    fillAgendaConfig();
-    message.textContent = 'Grupo removido.';
+    message.textContent = 'Grade removida.';
+    await loadAgendaConfigs();
     await load(true);
   } catch (error) { message.textContent = error.message || 'Não foi possível remover.'; }
   finally { button.disabled = false; }
@@ -434,7 +448,7 @@ async function removeAgendaConfig() {
 
 document.querySelector('#openAgendaSettings').addEventListener('click', openAgendaSettings);
 document.querySelector('#emptyAddAgenda').addEventListener('click', openAgendaSettings);
-document.querySelector('#configPlatform').addEventListener('change', fillAgendaConfig);
+document.querySelector('#addGradeButton').addEventListener('click', openAgendaSettings);
 document.querySelector('#openConfigSite').addEventListener('click', () => {
   const value = document.querySelector('#configUrl').value.trim();
   if (!/^https?:\/\//i.test(value)) {
@@ -444,9 +458,13 @@ document.querySelector('#openConfigSite').addEventListener('click', () => {
   window.open(value, '_blank', 'noopener,noreferrer');
 });
 document.querySelector('#saveAgendaConfig').addEventListener('click', saveAgendaConfig);
-document.querySelector('#removeAgendaConfig').addEventListener('click', removeAgendaConfig);
 refreshButton.addEventListener('click', () => load(true));
-document.querySelectorAll('.nav-tab').forEach((button) => button.addEventListener('click', () => openView(button.dataset.view)));
+document.querySelectorAll('.nav-tab').forEach((button) => button.addEventListener('click', () => { openView(button.dataset.view); if (button.dataset.view === 'settings') loadAgendaConfigs(); }));
+document.querySelectorAll('[data-settings-panel]').forEach((button) => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-settings-panel]').forEach((tab) => tab.classList.toggle('active', tab === button));
+  document.querySelectorAll('.settings-panel').forEach((panel) => panel.classList.toggle('active', panel.id === `${button.dataset.settingsPanel}SettingsPanel`));
+  if (button.dataset.settingsPanel === 'grades') loadAgendaConfigs();
+}));
 document.querySelector('[data-open-schedule]').addEventListener('click', () => openView('schedule'));
 document.querySelector('#kickLoginButton').addEventListener('click', () => {
   const button = document.querySelector('#kickLoginButton');

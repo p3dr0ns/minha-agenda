@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar — Minha Agenda</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/login.js" defer></script>
+</head>
+<body class="auth-page">
+  <main class="auth-card">
+    <a class="brand" href="/">minha<span>agenda</span></a>
+    <h1 id="authTitle">Sua agenda, em um só lugar.</h1>
+    <p>Entre na sua conta para acessar suas comunidades e horários.</p>
+    <div class="auth-tabs" role="group" aria-label="Acesso à conta">
+      <button type="button" id="loginTab" aria-pressed="true">Entrar</button>
+      <button type="button" id="registerTab" aria-pressed="false">Criar conta</button>
+    </div>
+    <form id="authForm">
+      <label>Usuário da Minha Agenda<input id="authUsername" name="username" required minlength="3" maxlength="40" pattern="[a-zA-Z0-9_.\-]+" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+      <label>Senha<input id="authPassword" name="password" type="password" required maxlength="128" autocomplete="current-password"></label>
+      <label id="confirmLabel" hidden>Repita a senha<input id="authConfirm" type="password" maxlength="128" autocomplete="new-password"></label>
+      <p id="authHelp">Use a conta da Minha Agenda. Os logins das comunidades são adicionados depois.</p>
+      <p id="authMessage" role="status" aria-live="polite"></p>
+      <button class="save-button" id="authSubmit" type="submit">Entrar</button>
+    </form>
+  </main>
+</body>
+</html>

@@ -22,6 +22,7 @@
         <button class="nav-tab" data-view="settings">Configurações</button>
       </nav>
       <div class="top-actions">
+        <span id="accountName"></span><button class="secondary-button" type="button" id="changePasswordButton">Senha</button><button class="secondary-button" type="button" id="logoutButton">Sair</button>
         <span class="sync-label" id="syncLabel">Sincronizando…</span>
         <button class="icon-button" id="refreshButton" title="Atualizar agendas" aria-label="Atualizar agendas">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
@@ -110,7 +111,7 @@
               <option value="3">Quinta</option><option value="4">Sexta</option><option value="5">Sábado</option><option value="6">Domingo</option>
             </select>
           </div>
-          <button class="settings-button" id="openAgendaSettings">Adicionar ou gerenciar agendas</button>
+          <button class="settings-button" id="openAgendaSettings">Adicionar grade</button>
         </div>
         <div class="week-grid" id="weekGrid"></div>
         <div class="empty-state hidden" id="emptyState">
@@ -124,35 +125,52 @@
 
       <section class="view-panel settings-view" id="settingsView">
         <div class="settings-page-head"><p class="eyebrow">PREFERÊNCIAS</p><h1>Configurações</h1><p class="subtitle">Ajuste como sua agenda funciona neste navegador.</p></div>
-        <div class="preferences-grid">
+        <div class="settings-tabs" role="tablist"><button class="settings-tab active" data-settings-panel="general">GERAL</button><button class="settings-tab" data-settings-panel="grades">GRADES</button></div>
+        <div class="settings-panel active" id="generalSettingsPanel"><div class="preferences-grid">
           <article class="preference-card"><label for="refreshInterval">Atualização automática</label><p>Frequência para buscar novos horários.</p><select id="refreshInterval"><option value="1">A cada minuto</option><option value="2">A cada 2 minutos</option><option value="5">A cada 5 minutos</option><option value="10">A cada 10 minutos</option><option value="0">Somente manual</option></select></article>
           <article class="preference-card"><label for="notificationLead">Antecedência das notificações</label><p>Quando avisar sobre o próximo horário.</p><select id="notificationLead"><option value="0">Desativadas</option><option value="5">5 minutos antes</option><option value="10">10 minutos antes</option><option value="15">15 minutos antes</option><option value="30">30 minutos antes</option><option value="60">1 hora antes</option></select><button class="permission-button" id="notificationPermission">Permitir notificações</button></article>
           <article class="preference-card"><label for="timezoneSetting">Fuso horário</label><p>Usado para exibir todos os horários.</p><select id="timezoneSetting"><option value="America/Sao_Paulo">Brasília</option><option value="America/Manaus">Manaus</option><option value="America/Rio_Branco">Acre</option><option value="America/Noronha">Fernando de Noronha</option><option value="UTC">UTC</option></select></article>
           <article class="preference-card platforms-preference"><label>Plataformas visíveis</label><p>Escolha quais aparecem na agenda.</p><div class="settings-platforms" id="settingsPlatforms"></div></article>
         </div>
         <div class="preferences-footer"><span id="preferencesMessage">As alterações são salvas neste navegador.</span><button class="save-button" id="savePreferences">Salvar configurações</button></div>
+        </div>
+        <div class="settings-panel" id="gradesSettingsPanel">
+          <div class="grades-heading"><div><h2>Grades adicionadas</h2><p>As fontes conectadas e o endereço usado para buscar os horários.</p></div><button class="save-button" id="addGradeButton" type="button">+ Adicionar grade</button></div>
+          <div class="grades-list" id="gradesList"><p class="grades-empty">Carregando grades…</p></div>
+          <p class="settings-message" id="gradesMessage"></p>
+        </div>
       </section>
     </main>
 
     <dialog class="settings-dialog" id="agendaSettingsDialog">
       <form method="dialog" class="settings-card">
-        <div class="settings-head"><div><p class="eyebrow">AGENDAS</p><h2>Adicionar ou editar</h2></div><button class="dialog-close" value="cancel" aria-label="Fechar">×</button></div>
-        <p class="settings-intro">Edite um grupo conectado ou adicione outro site.</p>
-        <label>Plataforma<select id="configPlatform"></select></label>
+        <div class="settings-head"><div><p class="eyebrow">GRADE</p><h2 id="gradeDialogTitle">Adicionar grade</h2></div><button class="dialog-close" value="cancel" aria-label="Fechar">×</button></div>
+        <p class="settings-intro">Cole o link da comunidade e informe seu login para buscar seus horários. Na SkyVolk, a senha não é necessária.</p>
+        <input id="configPlatform" type="hidden" value="new">
         <div class="custom-source-fields hidden" id="customSourceFields">
-          <label>Nome da agenda<input id="configName" maxlength="60" placeholder="Ex.: Minha plataforma"></label>
+          <label>Nome da agenda (opcional)<input id="configName" maxlength="60" placeholder="Ex.: Minha plataforma"></label>
           <label>Cor<input id="configColor" type="color" value="#f59e0b"></label>
         </div>
-        <label>Link da agenda<input id="configUrl" type="url" required placeholder="https://api.exemplo.com.br"></label>
-        <button type="button" class="open-site-button" id="openConfigSite">Abrir site para fazer login ↗</button>
+        <label>Link da agenda<input id="configUrl" type="url" required placeholder="https://site-da-comunidade.com"></label>
+        <button type="button" class="open-site-button" id="openConfigSite">Visitar comunidade ↗</button>
         <label>Login<input id="configUsername" autocomplete="username" placeholder="Seu usuário"></label>
         <label>Senha <span class="optional-label">opcional para grades públicas</span><input id="configPassword" type="password" autocomplete="current-password" placeholder="Deixe vazio se o site não exigir"></label>
         <p class="settings-message" id="configMessage"></p>
-        <div class="settings-actions"><button type="button" class="remove-button hidden" id="removeAgendaConfig">Remover grupo</button><span class="settings-action-spacer"></span><button value="cancel" class="secondary-button">Cancelar</button><button type="button" class="save-button" id="saveAgendaConfig">Salvar e atualizar</button></div>
+        <div class="settings-actions"><span class="settings-action-spacer"></span><button value="cancel" class="secondary-button">Cancelar</button><button type="button" class="save-button" id="saveAgendaConfig">Buscar horários e adicionar</button></div>
       </form>
     </dialog>
 
+    <dialog class="settings-dialog" id="passwordDialog">
+      <form class="settings-card" id="passwordForm">
+        <h2>Alterar senha</h2>
+        <label>Senha atual<input id="oldPassword" type="password" required autocomplete="current-password"></label>
+        <label>Nova senha<input id="newPassword" type="password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
+        <p id="passwordMessage" role="status"></p>
+        <button type="submit" class="save-button" id="passwordSave">Salvar senha</button>
+      </form>
+      <form method="dialog"><button class="secondary-button">Fechar</button></form>
+    </dialog>
     <footer id="siteFooter">Preferências da agenda salvas neste navegador</footer>
-    <script src="/app.js" defer></script>
+    <script src="/session.js" defer></script>
   </body>
 </html>

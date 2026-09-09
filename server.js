@@ -9,16 +9,40 @@ const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.resolve(process.env.DATA_DIR || __dirname);
 fs.mkdirSync(DATA_DIR, { recursive: true });
-const AGENDA_CONFIG_FILE = path.join(DATA_DIR, '.agenda-config.json');
-const LIVE_HISTORY_FILE = path.join(DATA_DIR, '.live-history.json');
-const KICK_SESSION_FILE = path.join(DATA_DIR, '.kick-session.json');
+const { createPrivateStore } = require('./private-store');
+const { createAccounts } = require('./accounts');
+const privateStore = createPrivateStore(DATA_DIR);
+const accounts = createAccounts(DATA_DIR, privateStore);
+const workspaces = new Map();
+
+function loadEnv(file) {
+  if (!fs.existsSync(file)) return;
+  for (const raw of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const split = line.indexOf('=');
+    if (split < 1) continue;
+    const key = line.slice(0, split).trim();
+    let value = line.slice(split + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+
+
+function createWorkspace(user) {
+const USER_DIR = path.join(DATA_DIR, 'users', user.id);
+fs.mkdirSync(USER_DIR, { recursive: true });
+const AGENDA_CONFIG_FILE = path.join(USER_DIR, 'agenda.enc');
+const LIVE_HISTORY_FILE = path.join(USER_DIR, 'history.enc');
+const KICK_SESSION_FILE = path.join(USER_DIR, 'kick.enc');
 const CACHE_MS = 2 * 60 * 1000;
 
 const defaultPlatforms = [
   { id: 'bros', name: 'Bros', color: '#ff7a45', api: 'https://api.bros-platform.com.br' },
   { id: 'chiefs', name: 'Chiefs', color: '#8b5cf6', api: 'https://api.chiefs-platform.com.br' },
-  { id: 'printstream', name: 'PrintStream', color: '#14b8a6', api: 'https://api.printstream-platform.com.br' },
-  { id: 'rivals', name: 'Rivals', color: '#f43f5e', api: 'https://api.rivals-platform.com.br' },
   { id: 'alcateia', name: 'Alcateia', color: '#a35fe0', api: 'https://alcateia-backend-production.up.railway.app', kind: 'grade' },
   { id: 'nexus', name: 'Nexus', color: '#2563eb', api: 'https://nexus-backend-production-be46.up.railway.app', kind: 'grade' },
   { id: 'skyvolk', name: 'SkyVolk', color: '#8b00ff', api: 'https://skyvolk.com', kind: 'auto', requiresPassword: false }
@@ -39,6 +63,8 @@ function configuredPlatforms({ includeAvailable = false } = {}) {
 let agendaConfig = loadAgendaConfig();
 
 let cache = { at: 0, result: null };
+let configBusy = false;
+let schedulePromise = null;
 let kickSession = loadKickSession();
 let kickRefreshPromise = null;
 let kickLastError = null;
@@ -52,52 +78,10 @@ let chatSubscription = { active: false, message: 'Webhook ainda não conectado.'
 let chatSubscriptionPromise = null;
 let lastChatSubscriptionAttempt = 0;
 
-function loadEnv(file) {
-  if (!fs.existsSync(file)) return;
-  for (const raw of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const split = line.indexOf('=');
-    if (split < 1) continue;
-    const key = line.slice(0, split).trim();
-    let value = line.slice(split + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
-
-function loadAgendaConfig() {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(AGENDA_CONFIG_FILE, 'utf8'));
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch { return {}; }
-}
-
-function loadKickSession() {
-  try {
-    const session = JSON.parse(fs.readFileSync(KICK_SESSION_FILE, 'utf8'));
-    return session?.accessToken && session?.refreshToken ? session : null;
-  } catch { return null; }
-}
-
-function saveKickSession() {
-  if (!kickSession) {
-    try { fs.unlinkSync(KICK_SESSION_FILE); } catch {}
-    return;
-  }
-  const temporary = `${KICK_SESSION_FILE}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(kickSession, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporary, KICK_SESSION_FILE);
-}
-
-function loadLiveHistory() {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(LIVE_HISTORY_FILE, 'utf8'));
-    return { active: parsed.active || null, sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [] };
-  } catch { return { active: null, sessions: [] }; }
-}
+function loadAgendaConfig() { return privateStore.read(AGENDA_CONFIG_FILE, {}); }
+function loadKickSession() { return privateStore.read(KICK_SESSION_FILE, null); }
+function saveKickSession() { privateStore.write(KICK_SESSION_FILE, kickSession); }
+function loadLiveHistory() { return privateStore.read(LIVE_HISTORY_FILE, { active: null, sessions: [] }); }
 
 function emptyLiveAnalytics() {
   return { live: false, startedAt: null, endedAt: null, title: null, category: null, samples: [], chatStartedAt: null, chatters: new Map(), totalMessages: 0 };
@@ -117,9 +101,7 @@ function saveLiveHistory(force = false) {
   const now = Date.now();
   if (!force && now - lastHistorySave < 20_000) return;
   liveHistory.active = serializableActive();
-  const temporary = `${LIVE_HISTORY_FILE}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(liveHistory, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporary, LIVE_HISTORY_FILE);
+  privateStore.write(LIVE_HISTORY_FILE, liveHistory);
   lastHistorySave = now;
 }
 
@@ -149,35 +131,14 @@ function finalizeActiveLive(endedAt = new Date().toISOString()) {
 
 function platformCredentials(platform) {
   const saved = agendaConfig[platform.id] || {};
-  const prefix = platform.id.toUpperCase();
   return {
     api: saved.url || platform.api,
-    username: saved.username || process.env[`${prefix}_USERNAME`] || '',
-    password: saved.password || process.env[`${prefix}_PASSWORD`] || ''
+    username: saved.username || '',
+    password: saved.password || ''
   };
 }
 
-async function requestJson(url, options = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    const text = await response.text();
-    let body = null;
-    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-    if (!response.ok) {
-      const detail = typeof body?.data === 'string' ? body.data : '';
-      const summary = body?.message || body?.error || `HTTP ${response.status}`;
-      const message = detail && detail !== summary ? `${summary}: ${detail}` : summary;
-      const error = new Error(String(message));
-      error.status = response.status;
-      throw error;
-    }
-    return body;
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const { remoteJson: requestJson } = require('./remote-json');
 
 async function getPlatformSchedule(platform) {
   const { api, username, password } = platformCredentials(platform);
@@ -187,7 +148,7 @@ async function getPlatformSchedule(platform) {
   }
 
   try {
-    if (platform.kind === 'auto') return await discoverPlatformSchedule(platform, api, username, password);
+    if (platform.kind === 'auto' || agendaConfig[platform.id]?.adapter) return await discoverPlatformSchedule(platform, api, username, password);
     const loginEndpoint = platform.kind === 'grade' ? '/auth/login' : '/admin/login';
     const login = await loginAt(api, loginEndpoint, username, password);
     const token = login?.token || login?.accessToken || login?.access_token;
@@ -256,66 +217,83 @@ function urlBases(input) {
 }
 
 async function discoverUrlBases(input) {
-  const direct = urlBases(input);
+  const parsed = new URL(input);
+  const known = {
+    'alcateia-site-puce.vercel.app': 'https://alcateia-backend-production.up.railway.app',
+    'skyvolk.com': 'https://skyvolk.com'
+  };
+  if (known[parsed.hostname]) return [known[parsed.hostname]];
+  const bases = [parsed.origin];
   try {
     const html = await requestJson(input, { headers: { accept: 'text/html' } });
-    if (typeof html !== 'string') return direct;
-    const scripts = [...html.matchAll(/<script[^>]+src=["']([^"']+\.js(?:\?[^"']*)?)["']/gi)]
-      .map((match) => new URL(match[1], input).href).slice(0, 5);
-    const bundles = await Promise.all(scripts.map((url) => requestJson(url, { headers: { accept: 'text/javascript' } }).catch(() => '')));
-    const discovered = bundles.flatMap((bundle) => typeof bundle === 'string'
-      ? [...bundle.matchAll(/https?:\/\/[^"'`\\\s)]+/g)].map((match) => match[0].replace(/[;,]+$/, ''))
-      : []).filter((url) => {
-        try { const parsed = new URL(url); return /(^|[.-])api([.-]|$)/i.test(parsed.hostname) || /\/api(?:\/|$)/i.test(parsed.pathname); }
-        catch { return false; }
-      });
-    return [...new Set([...discovered.flatMap(urlBases), ...direct])];
-  } catch { return direct; }
+    if (typeof html !== 'string') return urlBases(input);
+    const scripts = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)]
+      .map((match) => new URL(match[1], input)).filter((url) => url.origin === parsed.origin).slice(0, 5);
+    const bundles = await Promise.all(scripts.map((url) => requestJson(url.href).catch(() => '')));
+    // Only API configuration declarations, never arbitrary links or analytics URLs.
+    for (const source of [html, ...bundles]) {
+      if (typeof source !== 'string') continue;
+      for (const match of source.matchAll(/(?:\b(?:API(?:_BASE(?:_URL)?|_URL)?|BASE_URL|baseURL|apiUrl|apiBaseUrl))\s*[:=]\s*["'](https?:\/\/[^"'\s]+)["']/gi)) {
+        const url = new URL(match[1]);
+        if (url.protocol === 'https:') bases.unshift(url.href.replace(/\/$/, ''));
+      }
+    }
+  } catch {}
+  return [...new Set([...bases, ...urlBases(input)])].slice(0, 6);
+}
+
+function scheduleWeeks() {
+  const first = currentWeekStart();
+  const next = new Date(first + 'T12:00:00'); next.setDate(next.getDate() + 7);
+  return [first, next.getFullYear() + '-' + String(next.getMonth() + 1).padStart(2, '0') + '-' + String(next.getDate()).padStart(2, '0')];
 }
 
 async function discoverPlatformSchedule(platform, inputUrl, username, password) {
-  const weeks = [currentWeekStart()];
-  const next = new Date(`${weeks[0]}T12:00:00`); next.setDate(next.getDate() + 7);
-  weeks.push(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`);
-  const bases = await discoverUrlBases(inputUrl);
-  for (const base of bases) {
-    try {
-      const payload = await requestJson(`${base}/api/cronograma`, { headers: { accept: 'application/json' } });
-      const events = weeks.flatMap((week) => normalizeWeeklyUserEvents(payload, week, platform, username));
-      if (events.length) return { ...platform, api: base, status: 'ok', events, fetchedAt: new Date().toISOString(), message: 'Grade semanal encontrada automaticamente' };
-    } catch {}
+  const weeks = scheduleWeeks();
+  const configured = agendaConfig[platform.id];
+  const saved = configured?.url === inputUrl ? configured.adapter : null;
+  const bases = saved ? [saved.base] : await discoverUrlBases(inputUrl);
+  const result = (base, events, adapter) => ({ ...platform, api: base, status: 'ok', events, adapter,
+    fetchedAt: new Date().toISOString(), message: events.length ? events.length + ' horários encontrados' : 'Comunidade conectada. Nenhum horário encontrado para este login.' });
+  if (!saved || saved.kind === 'public-weekly') {
+    for (const base of bases) {
+      try {
+        const endpoint = saved?.endpoint ?? (new URL(base).pathname.endsWith('/api/cronograma') ? '' : '/api/cronograma');
+        const payload = await requestJson(base + endpoint, { headers: { accept: 'application/json' } });
+        if (!Array.isArray(payload) || !payload.every((item) => item && 'diaSemana' in item && 'hora' in item && 'username' in item)) continue;
+        return result(base, weeks.flatMap((week) => normalizeWeeklyUserEvents(payload, week, platform, username)), { kind: 'public-weekly', base, endpoint });
+      } catch {}
+    }
   }
-  if (!password) throw new Error('A grade pública não foi encontrada. Informe a senha para testar APIs autenticadas.');
-  const loginCandidates = bases.flatMap((base) =>
-    ['/auth/login', '/admin/login', '/api/auth/login', '/login'].map(async (endpoint) => {
-      const login = await loginAt(base, endpoint, username, password);
-      const token = login?.token || login?.accessToken || login?.access_token || login?.data?.token;
-      if (!token) throw new Error('Login sem token');
-      return { base, token };
-    })
-  );
-  const sessions = (await Promise.allSettled(loginCandidates)).filter((item) => item.status === 'fulfilled').map((item) => item.value);
-  const patterns = [
-    (week) => `/grade/${week}/mine`,
-    (week) => `/me/multiview-schedule?weekStartDate=${encodeURIComponent(week)}`,
-    (week) => `/admin/multiview-schedule?weekStartDate=${encodeURIComponent(week)}`,
-    (week) => `/schedule?weekStartDate=${encodeURIComponent(week)}`,
-    (week) => `/agenda?weekStartDate=${encodeURIComponent(week)}`
+  if (!password) throw new Error('Não encontramos uma grade pública compatível. Se a comunidade exige login, informe também a senha.');
+  const patterns = saved?.schedule ? [saved.schedule] : [
+    '/grade/{week}/mine', '/me/multiview-schedule?weekStartDate={week}',
+    '/admin/multiview-schedule?weekStartDate={week}', '/schedule?weekStartDate={week}', '/agenda?weekStartDate={week}'
   ];
-  const scheduleCandidates = sessions.flatMap(({ base, token }) => patterns.map(async (pattern) => {
-    const headers = { authorization: `Bearer ${token}`, accept: 'application/json' };
-    const payloads = await Promise.all(weeks.map((week) => requestJson(`${base}${pattern(week)}`, { headers })));
-    const events = payloads.flatMap((payload, index) => {
-      const grade = normalizeGradeEvents(payload, weeks[index], platform);
-      return grade.length ? grade : normalizeEvents(payload, platform);
-    });
-    if (!events.length) throw new Error('Resposta sem horários');
-    return { ...platform, api: base, status: 'ok', events, fetchedAt: new Date().toISOString(), message: 'API encontrada automaticamente' };
-  }));
-  const schedules = await Promise.allSettled(scheduleCandidates);
-  const found = schedules.find((item) => item.status === 'fulfilled');
-  if (found) return found.value;
-  throw new Error('Nenhuma API de agenda compatível foi encontrada. Confirme o endereço ou informe diretamente a URL base da API.');
+  let rejected = false;
+  for (const base of bases) {
+    for (const endpoint of (saved?.login ? [saved.login] : ['/auth/login', '/admin/login', '/api/auth/login', '/login'])) {
+      let token;
+      try {
+        const login = await loginAt(base, endpoint, username, password);
+        token = login?.token || login?.accessToken || login?.access_token || login?.data?.token;
+      } catch (error) { if (error.status === 401 || error.status === 403) rejected = true; continue; }
+      if (!token) continue;
+      const headers = { authorization: 'Bearer ' + token, accept: 'application/json' };
+      for (const pattern of patterns) {
+        try {
+          const payloads = await Promise.all(weeks.map((week) => requestJson(base + pattern.replace('{week}', week), { headers })));
+          const events = payloads.flatMap((payload, index) => pattern.startsWith('/grade/') ? normalizeGradeEvents(payload, weeks[index], platform) : normalizeEvents(payload, platform));
+          const recognized = payloads.every((p) => pattern.startsWith('/grade/')
+            ? Array.isArray(p) && p.every((item) => item && 'day_of_week' in item && 'hour' in item)
+            : p?.weekStartDate && Array.isArray(p.items));
+          if (!recognized && !events.length) continue;
+          return result(base, events, { kind: 'token', base, login: endpoint, schedule: pattern });
+        } catch {}
+      }
+    }
+  }
+  throw new Error(rejected ? 'A comunidade recusou o login. Confira seu usuário e sua senha.' : 'Este site ainda não tem um formato de horários compatível. Confira o link; comunidades com outro formato precisam de uma integração específica.');
 }
 
 function normalizeWeeklyUserEvents(payload, weekStart, platform, username) {
@@ -327,9 +305,9 @@ function normalizeWeeklyUserEvents(payload, weekStart, platform, username) {
     const hour = Number(item.hora);
     if (!Number.isInteger(siteDay) || siteDay < 0 || siteDay > 6 || !Number.isFinite(hour)) return null;
     const mondayOffset = siteDay === 0 ? 6 : siteDay - 1;
-    const start = new Date(`${weekStart}T00:00:00`);
-    start.setDate(start.getDate() + mondayOffset);
-    start.setHours(hour, 0, 0, 0);
+    const start = new Date(`${weekStart}T00:00:00-03:00`);
+    start.setUTCDate(start.getUTCDate() + mondayOffset);
+    start.setUTCHours(hour + 3, 0, 0, 0);
     return {
       id: `${platform.id}-${weekStart}-${item.id || index}`,
       platformId: platform.id,
@@ -339,16 +317,17 @@ function normalizeWeeklyUserEvents(payload, weekStart, platform, username) {
       start: start.toISOString(),
       end: new Date(start.getTime() + 60 * 60 * 1000).toISOString(),
       status: 'PUBLISHED',
-      notes: item.slot ? `Alcateia ${item.slot}` : String(item.descricao || '')
+      notes: item.slot ? `Slot ${item.slot}` : String(item.descricao || '')
     };
   }).filter(Boolean).sort((a, b) => new Date(a.start) - new Date(b.start));
 }
 
 function currentWeekStart() {
-  const now = new Date();
-  const day = now.getDay() || 7;
-  now.setDate(now.getDate() - day + 1);
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  const now = new Date(today + 'T12:00:00Z');
+  const day = now.getUTCDay() || 7;
+  now.setUTCDate(now.getUTCDate() - day + 1);
+  return now.toISOString().slice(0, 10);
 }
 
 function normalizeGradeEvents(payload, weekStart, platform) {
@@ -357,16 +336,16 @@ function normalizeGradeEvents(payload, weekStart, platform) {
     const day = Number(item.day_of_week);
     const hour = Number(item.hour);
     if (!Number.isInteger(day) || !Number.isFinite(hour)) return null;
-    const start = new Date(`${weekStart}T00:00:00`);
-    start.setDate(start.getDate() + day);
-    start.setHours(hour, 0, 0, 0);
+    const start = new Date(`${weekStart}T00:00:00-03:00`);
+    start.setUTCDate(start.getUTCDate() + day);
+    start.setUTCHours(hour + 3, 0, 0, 0);
     const end = new Date(start.getTime() + 60 * 60 * 1000);
     return {
       id: `${platform.id}-${weekStart}-${day}-${hour}-${item.slot_number ?? index}`,
       platformId: platform.id,
       platform: platform.name,
       color: platform.color,
-      title: String(item.display_name || item.username || item.slug || 'thepocoto'),
+      title: String(item.display_name || item.username || item.slug || 'Horário reservado'),
       start: start.toISOString(),
       end: end.toISOString(),
       status: 'PUBLISHED',
@@ -390,8 +369,8 @@ function normalizeEvents(payload, platform) {
     return payload.items.map((item, index) => {
       const offset = dayOffsets[String(item.dayOfWeek || '').toUpperCase()];
       if (offset === undefined || !item.hour) return null;
-      const start = new Date(`${payload.weekStartDate}T${item.hour}:00`);
-      start.setDate(start.getDate() + offset);
+      const start = new Date(`${payload.weekStartDate}T${item.hour}:00-03:00`);
+      start.setUTCDate(start.getUTCDate() + offset);
       const end = new Date(start.getTime() + 60 * 60 * 1000);
       const title = String(item.displayName || item.slug || 'Horário reservado');
       return {
@@ -526,6 +505,14 @@ function kickConfigured() {
   return Boolean(process.env.KICK_CLIENT_ID && process.env.KICK_CLIENT_SECRET && process.env.KICK_REDIRECT_URI);
 }
 
+function kickOAuthScopes() {
+  const configured = String(process.env.KICK_SCOPES || 'user:read')
+    .split(/[\s,]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  return [...new Set(configured)].join(' ');
+}
+
 async function refreshKickAccessToken(force = false) {
   if (!kickSession?.refreshToken) throw new Error('Não há token de renovação');
   if (!force && kickSession.expiresAt && Date.now() < kickSession.expiresAt - 60_000) return kickSession.accessToken;
@@ -539,7 +526,7 @@ async function refreshKickAccessToken(force = false) {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body
     });
     if (!token?.access_token) throw new Error('A Kick não retornou um novo token');
-    kickSession = { accessToken: token.access_token, refreshToken: token.refresh_token || kickSession.refreshToken, expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000 };
+    kickSession = { ...kickSession, accessToken: token.access_token, refreshToken: token.refresh_token || kickSession.refreshToken, expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000 };
     saveKickSession();
     return kickSession.accessToken;
   })();
@@ -547,7 +534,7 @@ async function refreshKickAccessToken(force = false) {
   finally { kickRefreshPromise = null; }
 }
 
-async function getKickStats() {
+async function getKickStats(retried = false) {
   if (!kickSession?.accessToken) return { configured: kickConfigured(), connected: false, message: kickLastError };
   try {
     const accessToken = await refreshKickAccessToken(false);
@@ -555,6 +542,7 @@ async function getKickStats() {
     const users = await requestJson('https://api.kick.com/public/v1/users', { headers });
     const user = users?.data?.[0] || users?.[0] || users?.data || null;
     const broadcasterId = user?.user_id || user?.id;
+    if (broadcasterId && kickSession && kickSession.broadcasterId !== String(broadcasterId)) { kickSession.broadcasterId = String(broadcasterId); saveKickSession(); }
     let channel = null;
     let live = null;
     if (broadcasterId) {
@@ -577,8 +565,8 @@ async function getKickStats() {
     recordAudienceSample(result);
     return result;
   } catch (error) {
-    if (error.status === 401 && kickSession?.refreshToken) {
-      try { await refreshKickAccessToken(true); return getKickStats(); }
+    if (error.status === 401 && kickSession?.refreshToken && !retried) {
+      try { await refreshKickAccessToken(true); return getKickStats(true); }
       catch (refreshError) {
         if ([400, 401, 403].includes(refreshError.status)) { kickSession = null; saveKickSession(); }
       }
@@ -632,7 +620,7 @@ async function verifyKickWebhook(req, rawBody) {
   const messageId = req.headers['kick-event-message-id'];
   const timestamp = req.headers['kick-event-message-timestamp'];
   const signature = req.headers['kick-event-signature'];
-  if (!messageId || !timestamp || !signature) return false;
+  if (!messageId || !timestamp || !signature || !Number.isFinite(Date.parse(timestamp)) || Math.abs(Date.now() - Date.parse(timestamp)) > 300_000) return false;
   if (!kickPublicKey) {
     const response = await requestJson('https://api.kick.com/public/v1/public-key');
     kickPublicKey = response?.data?.public_key || response?.public_key || response?.data;
@@ -660,6 +648,7 @@ async function subscribeToChat(accessToken) {
     const users = await requestJson('https://api.kick.com/public/v1/users', { headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' } });
     const user = users?.data?.[0] || users?.[0] || users?.data;
     const broadcasterId = user?.user_id || user?.id;
+    if (broadcasterId && kickSession && kickSession.broadcasterId !== String(broadcasterId)) { kickSession.broadcasterId = String(broadcasterId); saveKickSession(); }
     const body = { method: 'webhook', events: [{ name: 'chat.message.sent', version: 1 }] };
     if (broadcasterId) body.broadcaster_user_id = Number(broadcasterId);
     await requestJson('https://api.kick.com/public/v1/events/subscriptions', { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -693,7 +682,7 @@ function serveStatic(req, res) {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   const requestPath = pathname === '/' ? '/index.html' : pathname;
   const file = path.resolve(PUBLIC_DIR, `.${requestPath}`);
-  if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+  if (!file.startsWith(PUBLIC_DIR + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     res.writeHead(404).end('Não encontrado');
     return;
   }
@@ -702,7 +691,7 @@ function serveStatic(req, res) {
   fs.createReadStream(file).pipe(res);
 }
 
-const server = http.createServer(async (req, res) => {
+async function handle(req, res) {
   if (req.method === 'GET' && req.url === '/api/agenda-config') {
     const data = configuredPlatforms().map((platform) => {
       const credentials = platformCredentials(platform);
@@ -712,41 +701,56 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify(data));
   }
   if (req.method === 'POST' && req.url === '/api/agenda-config') {
+    if (configBusy) return accounts.json(res, 429, { error: 'Aguarde a busca em andamento.' });
+    configBusy = true;
     try {
       const body = JSON.parse((await readRequestBody(req)).toString('utf8'));
       const isNew = body.platformId === 'new';
+      if (isNew && Object.keys(agendaConfig).length >= 30) throw new Error('Limite de 30 comunidades por conta.');
       const platform = isNew ? null : configuredPlatforms({ includeAvailable: true }).find((item) => item.id === body.platformId);
       if (!isNew && !platform) throw new Error('Plataforma inválida');
-      const url = String(body.url || '').trim().replace(/\/$/, '');
+      const rawUrl = String(body.url || '').trim();
+      if (!rawUrl || rawUrl.length > 2000 || String(body.username || '').length > 100 || String(body.password || '').length > 256 || String(body.name || '').length > 60) throw new Error('Confira o link e o tamanho dos dados informados.');
+      if (body.color && !/^#[a-f0-9]{6}$/i.test(body.color)) throw new Error('Cor inválida.');
+      const url = (/^https?:\/\//i.test(rawUrl) ? rawUrl : 'https://' + rawUrl).replace(/\/$/, '');
       if (!/^https?:\/\//i.test(url)) throw new Error('Informe um link válido, começando com http:// ou https://');
-      const name = String(body.name || '').trim();
+      const name = String(body.name || '').trim() || new URL(url).hostname.replace(/^www\./, '');
+      if (!String(body.username || '').trim()) throw new Error('Informe seu login na comunidade');
       if (isNew && !name) throw new Error('Informe um nome para a agenda');
       const id = isNew ? `custom-${crypto.randomBytes(6).toString('hex')}` : platform.id;
       const current = agendaConfig[id] || {};
+      const candidate = { id, name: name || current.name || platform?.name || 'Outra agenda', color: String(body.color || current.color || platform?.color || '#f59e0b'), kind: 'auto', custom: isNew || Boolean(platform?.custom) };
+      let detected;
+      {
+        detected = await discoverPlatformSchedule(candidate, url, String(body.username || '').trim(), body.password ? String(body.password) : (current.password || ''));
+      }
       agendaConfig[id] = {
         url,
+        adapter: detected?.adapter,
         username: String(body.username || '').trim(),
         password: body.clearPassword ? '' : (body.password ? String(body.password) : (current.password || '')),
         disabled: false,
+        ...(detected ? { detected: true, detectedMessage: detected.message || 'API encontrada automaticamente' } : {}),
         ...(isNew || platform.custom ? { custom: true, name: name || current.name || platform.name, color: String(body.color || current.color || '#f59e0b') } : {})
       };
-      fs.writeFileSync(AGENDA_CONFIG_FILE, `${JSON.stringify(agendaConfig, null, 2)}\n`, { mode: 0o600 });
+      privateStore.write(AGENDA_CONFIG_FILE, agendaConfig);
       cache = { at: 0, result: null };
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      return res.end(JSON.stringify({ ok: true, id }));
+      return res.end(JSON.stringify({ ok: true, id, detectedUrl: detected?.api || null, message: detected?.message || 'Configuração salva' }));
     } catch (error) {
       res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
       return res.end(JSON.stringify({ error: error.message || 'Não foi possível salvar' }));
-    }
+    } finally { configBusy = false; }
   }
   if (req.method === 'DELETE' && req.url.startsWith('/api/agenda-config/')) {
+    if (configBusy) return accounts.json(res, 429, { error: 'Aguarde a busca em andamento.' });
     try {
       const id = decodeURIComponent(new URL(req.url, 'http://localhost').pathname.split('/').pop());
       const platform = configuredPlatforms({ includeAvailable: true }).find((item) => item.id === id);
       if (!platform) throw new Error('Grupo não encontrado');
       if (platform.custom) delete agendaConfig[id];
       else agendaConfig[id] = { disabled: true };
-      fs.writeFileSync(AGENDA_CONFIG_FILE, `${JSON.stringify(agendaConfig, null, 2)}\n`, { mode: 0o600 });
+      privateStore.write(AGENDA_CONFIG_FILE, agendaConfig);
       cache = { at: 0, result: null };
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       return res.end(JSON.stringify({ ok: true }));
@@ -764,7 +768,7 @@ const server = http.createServer(async (req, res) => {
       const messageId = String(req.headers['kick-event-message-id']);
       const eventType = String(req.headers['kick-event-type'] || '');
       const payload = JSON.parse(rawBody.toString('utf8'));
-      if (!eventType || eventType === 'chat.message.sent') countChatMessage(payload, messageId);
+      if (eventType === 'chat.message.sent') receiveChat(payload, messageId);
       res.writeHead(200).end('OK');
     } catch {
       res.writeHead(400).end('Webhook inválido');
@@ -794,11 +798,12 @@ const server = http.createServer(async (req, res) => {
     const state = base64url(crypto.randomBytes(24));
     const verifier = base64url(crypto.randomBytes(48));
     const challenge = base64url(crypto.createHash('sha256').update(verifier).digest());
-    const pending = { state, verifier, createdAt: Date.now() };
+    const pending = { state, verifier, userId: user.id, createdAt: Date.now() };
+    for (const [key, value] of kickOAuthStates) if (Date.now() - value.createdAt > 600_000) kickOAuthStates.delete(key);
     kickOAuthStates.set(state, pending);
     const params = new URLSearchParams({
       response_type: 'code', client_id: process.env.KICK_CLIENT_ID,
-      redirect_uri: process.env.KICK_REDIRECT_URI, scope: 'user:read channel:read events:subscribe',
+      redirect_uri: process.env.KICK_REDIRECT_URI, scope: kickOAuthScopes(),
       code_challenge: challenge, code_challenge_method: 'S256', state
     });
     res.writeHead(302, { location: `https://id.kick.com/oauth/authorize?${params}`, 'set-cookie': oauthCookie(oauthCookieValue(pending)) });
@@ -812,7 +817,7 @@ const server = http.createServer(async (req, res) => {
     const cookiePending = readOAuthCookie(req);
     const pending = kickOAuthStates.get(state) || (cookiePending?.state === state ? cookiePending : null);
     kickOAuthStates.delete(state);
-    if (!code || !pending || Date.now() - pending.createdAt > 10 * 60 * 1000) {
+    if (!code || !pending || pending.userId !== user.id || cookiePending?.state !== state || Date.now() - pending.createdAt > 10 * 60 * 1000) {
       kickLastError = oauthError ? `A Kick recusou o login: ${oauthError}` : 'A autorização expirou ou não pôde ser validada. Tente novamente.';
       res.writeHead(302, { location: '/?kick=error', 'set-cookie': oauthCookie('', 0) }); return res.end();
     }
@@ -838,7 +843,8 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url.startsWith('/api/schedule')) {
     try {
       const force = new URL(req.url, 'http://localhost').searchParams.get('refresh') === '1';
-      const data = await loadSchedules(force);
+      if (!schedulePromise) schedulePromise = loadSchedules(force).finally(() => { schedulePromise = null; });
+      const data = await schedulePromise;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(data));
     } catch {
@@ -849,6 +855,62 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method !== 'GET') return res.writeHead(405).end('Método não permitido');
   serveStatic(req, res);
-});
+}
+function receiveChat(payload, messageId) {
+  const broadcasterId = payload.broadcaster?.user_id || payload.broadcaster?.id || payload.broadcaster_user_id;
+  if (!kickSession?.broadcasterId || String(broadcasterId) !== kickSession.broadcasterId) return;
+  countChatMessage(payload, messageId);
+}
+return { handle, receiveChat, verifyKickWebhook, flush: () => saveLiveHistory(true) };
+}
 
-server.listen(PORT, () => console.log(`Agenda disponível em http://localhost:${PORT}`));
+function workspace(user) {
+  if (!workspaces.has(user.id)) workspaces.set(user.id, createWorkspace(user));
+  return workspaces.get(user.id);
+}
+const server = http.createServer(async (req, res) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  try {
+    if (req.url.startsWith('/api/auth/')) return await accounts.handle(req, res);
+    if (req.method === 'POST' && req.url === '/api/kick/webhook') {
+      let size = 0; const chunks = [];
+      for await (const chunk of req) { size += chunk.length; if (size > 1024 * 1024) return accounts.json(res, 413, { error: 'Payload muito grande' }); chunks.push(chunk); }
+      const rawBody = Buffer.concat(chunks);
+      const users = accounts.users();
+      if (!users.length) return accounts.json(res, 200, { ok: true });
+      if (!await workspace(users[0]).verifyKickWebhook(req, rawBody)) return accounts.json(res, 403, { error: 'Assinatura inválida' });
+      if (req.headers['kick-event-type'] === 'chat.message.sent') {
+        const payload = JSON.parse(rawBody.toString('utf8'));
+        for (const user of users) workspace(user).receiveChat(payload, String(req.headers['kick-event-message-id']));
+      }
+      return accounts.json(res, 200, { ok: true });
+    }
+    const user = accounts.current(req);
+    if (req.url.startsWith('/api/')) {
+      if (!user) return accounts.json(res, 401, { error: 'Entre na sua conta.' });
+      if (!['GET', 'HEAD'].includes(req.method) && !accounts.sameOrigin(req)) return accounts.json(res, 403, { error: 'Origem não autorizada.' });
+      return await workspace(user).handle(req, res);
+    }
+    const pathname = new URL(req.url, 'http://localhost').pathname;
+    const files = { '/': user ? 'index.html' : 'login.html', '/index.html': user ? 'index.html' : 'login.html', '/login': 'login.html', '/styles.css': 'styles.css', '/app.js': 'app.js', '/login.js': 'login.js', '/session.js': 'session.js' };
+    if (req.method !== 'GET' || !files[pathname]) return accounts.json(res, 404, { error: 'Página não encontrada.' });
+    const file = path.join(PUBLIC_DIR, files[pathname]);
+    const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+    res.writeHead(200, { 'content-type': types[path.extname(file)], 'cache-control': 'no-store' });
+    fs.createReadStream(file).pipe(res);
+  } catch (error) {
+    console.error('Falha na requisição:', error.code || error.name);
+    if (!res.headersSent) accounts.json(res, 500, { error: 'Não foi possível concluir. Tente novamente.' });
+    else res.end();
+  }
+});
+server.listen(PORT, () => console.log('Agenda disponível em http://localhost:' + server.address().port));
+function shutdown() {
+  for (const state of workspaces.values()) state.flush();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

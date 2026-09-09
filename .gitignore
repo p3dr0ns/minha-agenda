@@ -2,6 +2,10 @@
 .agenda-config.json
 .live-history.json
 .kick-session.json
+.encryption-key
+accounts.enc
+users/
+*.enc.tmp
 node_modules/
 .tools/
 server.out.log
