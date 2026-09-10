@@ -16,6 +16,8 @@ Informe o link do site, seu usuário e a senha quando necessária. O nome é opc
 
 Na SkyVolk, use `https://skyvolk.com`, informe seu usuário e deixe a senha vazia. A grade pública é filtrada pelo usuário. Uma conexão sem horários continua válida. Alcateia e os formatos de grade e multiview existentes também são reconhecidos.
 
+Na La Plata, use `https://laplata-web.pages.dev` (o link `/dashboard` também funciona), seu usuário e sua senha. A integração autentica pelo Supabase e consulta somente as suas reservas ativas da semana atual e da próxima, no horário de Brasília. Reservas não são criadas nem alteradas.
+
 Não existe descoberta universal: sites com CAPTCHA, autenticação em duas etapas, sessão exclusiva do navegador ou formatos desconhecidos precisam de uma integração específica. A busca só acessa endereços públicos com HTTPS; endereços internos e redirecionamentos de credenciais são bloqueados.
 
 ## Hospedar

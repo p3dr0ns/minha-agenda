@@ -250,6 +250,8 @@ function scheduleWeeks() {
 
 async function discoverPlatformSchedule(platform, inputUrl, username, password) {
   const weeks = scheduleWeeks();
+  const { isLaPlata, loadLaPlata } = require('./la-plata');
+  if (isLaPlata(inputUrl)) return loadLaPlata(platform, username, password, weeks[0], requestJson);
   const configured = agendaConfig[platform.id];
   const saved = configured?.url === inputUrl ? configured.adapter : null;
   const bases = saved ? [saved.base] : await discoverUrlBases(inputUrl);

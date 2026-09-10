@@ -117,4 +117,10 @@ test('accounts, agendas, Kick and sessions remain isolated across requests and r
   assert.equal((await call('/api/auth/me', bob.cookie)).status, 200);
   await call('/api/auth/logout', changed.cookie, {});
   assert.equal((await call('/api/auth/me', changed.cookie)).status, 401);
+  const laplata = await call('/api/agenda-config', bob.cookie, { platformId: 'new', url: 'https://laplata-web.pages.dev/dashboard', username: 'bob', password: 'test-la-plata-password', name: 'La Plata' });
+  assert.equal(laplata.status, 200);
+  assert.match(laplata.data.message, /1 horários/);
+  const laSchedule = await call('/api/schedule?refresh=1', bob.cookie);
+  assert.equal(laSchedule.data.events.filter((event) => event.platformId === laplata.data.id).length, 1);
+  assert.ok(!JSON.stringify(laSchedule.data).includes('la-plata-test-token'));
 });
