@@ -64,7 +64,7 @@ test('accounts, agendas, Kick and sessions remain isolated across requests and r
   await start();
   for (const route of ['/api/agenda-config', '/api/schedule', '/api/kick/status', '/api/kick/history', '/api/kick/analytics']) assert.equal((await call(route)).status, 401);
   assert.match((await call('/')).data, /authForm/);
-  const [alice, bob] = await Promise.all(['alice', 'bob'].map((username) => call('/api/auth/register', null, { username, password: 'test-password-123' })));
+  const [alice, bob] = await Promise.all(['alice', 'bob'].map((username) => call('/api/auth/register', null, { username, password: 'test-password-123' }, 'POST', { origin: base.replace('http:', 'https:'), 'sec-fetch-site': 'same-origin', 'x-forwarded-proto': 'https' })));
   assert.equal(alice.status, 200); assert.equal(bob.status, 200);
   assert.notEqual(alice.data.user.id, bob.data.user.id);
   assert.match(alice.headers.get('set-cookie'), /HttpOnly/);

@@ -28,7 +28,7 @@ APP_ORIGIN=https://seu-dominio.com
 NODE_ENV=production
 ```
 
-`APP_ORIGIN` deve ser a origem exata usada pelas pessoas para acessar o site. Se o proxy confiável substituir `X-Forwarded-For`, configure `TRUST_PROXY=1` para limitar tentativas pelo IP do visitante. Caso contrário, o limite usa o endereço da conexão.
+`APP_ORIGIN` deve ser a origem exata usada pelas pessoas para acessar o site. O servidor também reconhece `RAILWAY_PUBLIC_DOMAIN` e requisições que o navegador identifica como provenientes do próprio site, inclusive quando o HTTPS termina no proxy do Railway. Isso evita bloquear o cadastro por uma variável antiga de localhost. Origens externas continuam bloqueadas. Se o proxy confiável substituir `X-Forwarded-For`, configure `TRUST_PROXY=1` para limitar tentativas pelo IP do visitante. Caso contrário, o limite usa o endereço da conexão.
 
 Contas e sessões ficam em `accounts.enc`; os dados privados ficam em `users/<id>/`. Os arquivos usam AES-256-GCM. As senhas de acesso são derivadas com scrypt; os tokens de sessão são armazenados como hashes. Cookies de produção usam `HttpOnly`, `SameSite=Lax` e `Secure`.
 

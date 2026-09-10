@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { promisify } = require('node:util');
+const { sameOrigin } = require('./request-origin');
 const scrypt = promisify(crypto.scrypt);
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -22,14 +23,6 @@ function createAccounts(root, store) {
   function json(res, status, data) {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify(data));
-  }
-  function sameOrigin(req) {
-    if (req.headers['sec-fetch-site'] === 'cross-site') return false;
-    if (!req.headers.origin) return true; // Non-browser clients do not send cookies implicitly.
-    try {
-      const expected = process.env.APP_ORIGIN ? new URL(process.env.APP_ORIGIN).origin : `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`;
-      return new URL(req.headers.origin).origin === expected;
-    } catch { return false; }
   }
   async function readBody(req) {
     let size = 0; const chunks = [];
